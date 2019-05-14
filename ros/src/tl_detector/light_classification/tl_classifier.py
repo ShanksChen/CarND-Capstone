@@ -17,12 +17,12 @@ boundaries = [
 
 COLOR_LIST = ['red', 'yellow', 'green']
 
-def filter_boxes(min_score, target_class, boxes, scores, classes):
+def filter_boxes(min_score, boxes, scores, classes):
     """Return boxes with a confidence >= `min_score`"""
     n = len(classes)
     idxs = []
     for i in range(n):
-        if scores[i] >= min_score and classes[i] == target_class:
+        if scores[i] >= min_score and classes[i] == 10: # https://github.com/tensorflow/models/blob/master/research/object_detection/data/mscoco_label_map.pbtxt
             idxs.append(i)
  
     filtered_boxes = boxes[idxs, ...]
@@ -54,8 +54,6 @@ def draw_boxes(image, boxes, classes, scores, color_id, thickness=4):
         color = COLOR_LIST[color_id]
         
         draw.line([(left, top), (left, bot), (right, bot), (right, top), (left, top)], width=thickness, fill=color)
-        draw.rectangle([(left, bot-20), (right, bot)], outline=color, fill=color)
-        draw.text((left, bot-15), str(scores[i]), 'black')
 
 def load_graph(graph_file):
     """Loads a frozen inference graph"""
@@ -121,15 +119,15 @@ class TLClassifier(object):
 
         confidence_cutoff = 0.2
         # Filter boxes with a confidence score less than `confidence_cutoff`
-        boxes, scores, classes = filter_boxes(confidence_cutoff, TARGET_CLASS, boxes, scores, classes)
+        boxes, scores, classes = filter_boxes(confidence_cutoff, boxes, scores, classes)
 
         if len(boxes) > 0:
             # The current box coordinates are normalized to a range between 0 and 1.
             # This converts the coordinates actual location on the image.
             width, height = image.shape[-2::-1]
             box_coords = to_image_coords(boxes, height, width)
-
-            ryg = [0,0,0]
+            # Save the color for each state
+            light_color = [0,0,0]
             for i in range(len(box_coords)):
                 bot, left, top, right = box_coords[i, ...]
                 box_img = image[int(bot):int(top), int(left):int(right), :]
@@ -138,20 +136,17 @@ class TLClassifier(object):
 
                 hsv = cv2.cvtColor(box_img, cv2.COLOR_RGB2HSV)
                 mask = [0,0,0]
-                box_height = hsv.shape[0]
-                box_width = hsv.shape[1]
-                for j, (lower, upper) in enumerate(boundaries):
+                for j, (lowest, highest) in enumerate(boundaries):
                     # create NumPy arrays from the boundaries
-                    lower = np.array(lower, dtype = "uint8")
-                    upper = np.array(upper, dtype = "uint8")
+                    lowest = np.array(lowest, dtype = "uint8")
+                    highest = np.array(highest, dtype = "uint8")
 
-                    # find the colors within the specified boundaries and apply
-                    # the mask
-                    mask[j] = sum(np.hstack(cv2.inRange(hsv, lower, upper)))
-                
-                ryg[mask.index(max(mask))] += 1 
-
-            color = ryg.index(max(ryg))
+                    # sum the color between the lowest and highest in the mask
+                    mask[j] = sum(np.hstack(cv2.inRange(hsv, lowest, highest)))
+                # the maximum value of the item in mask is considered to be the corresponding color
+                light_color[mask.index(max(mask))] += 1 
+            # the index of the maximum value of the item in light_color is the light color
+            color = light_color.index(max(light_color))
 
         rospy.logwarn('detected light = %d', color)
         return color
